@@ -13,7 +13,6 @@ NOTIFIER_CHAT_ID = os.getenv("NOTIFIER_CHAT_ID")
 TARGET_WALLET = "UQD-Jv-fsvCZgyUan28CA1kMe9WBRE3-nl_y9u0B71R0-Xsh"
 TARGET_JETTON_MASTER = "EQClb4h8Wnqx-X_sKMFExqxcQusCktlMHxYZ2M80A_WnnFUe"
 
-# فقط در صورتی که کلید سالم و بدون اشکال باشد هدر را پر می‌کند
 HEADERS = {}
 if TON_API_KEY and len(TON_API_KEY.strip()) > 20:
     clean_key = TON_API_KEY.strip().replace('"', '').replace("'", "")
@@ -52,8 +51,10 @@ async def send_telegram(text: str):
                 print(f"[TG Error] Status: {resp.status}, Body: {await resp.text()}")
 
 async def monitor_wallet():
-    last_event_id = None
-    url = f"https://tonapi.io/v2/accounts/{TARGET_WALLET_RAW}/events?limit=10"
+    # ثبت تمام تراکنش‌های دیده‌شده برای جلوگیری قطعی از تکرار
+    seen_event_ids = set()
+    is_first_run = True
+    url = f"https://tonapi.io/v2/accounts/{TARGET_WALLET_RAW}/events?limit=20"
     
     print("🚀 Monitoring started for wallet:", TARGET_WALLET)
     print("🎯 Target Jetton Master:", TARGET_JETTON_MASTER)
@@ -66,16 +67,28 @@ async def monitor_wallet():
                         data = await response.json()
                         events = data.get("events", [])
                         
-                        if last_event_id is None:
-                            if events:
-                                last_event_id = events[0]["event_id"]
+                        # در اجرای اول تمام تراکنش‌های گذشته ثبت و رد می‌شوند تا اسپم نشود
+                        if is_first_run:
+                            for ev in events:
+                                seen_event_ids.add(ev.get("event_id"))
+                            is_first_run = False
+                            print(f"✅ Baseline established. Ignored {len(seen_event_ids)} past transactions.")
                             await asyncio.sleep(4)
                             continue
                         
+                        # بررسی رویدادهای جدید (از قدیمی به جدید)
                         for event in reversed(events):
-                            if event["event_id"] == last_event_id:
+                            eid = event.get("event_id")
+                            if not eid or eid in seen_event_ids:
                                 continue
                             
+                            # بلافاصله به لیست رویدادهای دیده شده اضافه می‌شود
+                            seen_event_ids.add(eid)
+                            
+                            # کنترل حجم حافظه set
+                            if len(seen_event_ids) > 1000:
+                                seen_event_ids.pop()
+
                             for action in event.get("actions", []):
                                 if action.get("type") == "JettonTransfer":
                                     jetton_data = action.get("JettonTransfer", {})
@@ -100,11 +113,9 @@ async def monitor_wallet():
                                             f"💰 <b>Amount:</b> <code>{amount:,.4f}</code>\n"
                                             f"📥 <b>Recipient:</b> <code>{recipient}</code>\n"
                                             f"📤 <b>Sender:</b> <code>{sender}</code>\n\n"
-                                            f"🔗 <a href='https://tonviewer.com/transaction/{event['event_id']}'>View on Tonviewer</a>"
+                                            f"🔗 <a href='https://tonviewer.com/transaction/{eid}'>View on Tonviewer</a>"
                                         )
                                         await send_telegram(msg)
-                            
-                            last_event_id = event["event_id"]
                     else:
                         error_body = await response.text()
                         print(f"[TonAPI Error] Status: {response.status}, Detail: {error_body}")
