@@ -4,23 +4,22 @@ import aiohttp
 import base64
 from dotenv import load_dotenv
 
-# Load environment variables from .env
 load_dotenv()
 
 TON_API_KEY = os.getenv("TON_API_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 NOTIFIER_CHAT_ID = os.getenv("NOTIFIER_CHAT_ID")
 
-# Target wallet address and jetton master contract address
 TARGET_WALLET = "UQD-Jv-fsvCZgyUan28CA1kMe9WBRE3-nl_y9u0B71R0-Xsh"
 TARGET_JETTON_MASTER = "EQClb4h8Wnqx-X_sKMFExqxcQusCktlMHxYZ2M80A_WnnFUe"
 
+# فقط در صورتی که کلید سالم و بدون اشکال باشد هدر را پر می‌کند
 HEADERS = {}
-if TON_API_KEY and len(TON_API_KEY.strip()) > 10:
-    HEADERS["Authorization"] = f"Bearer {TON_API_KEY.strip()}"
+if TON_API_KEY and len(TON_API_KEY.strip()) > 20:
+    clean_key = TON_API_KEY.strip().replace('"', '').replace("'", "")
+    HEADERS["Authorization"] = f"Bearer {clean_key}"
 
 def to_raw_address(address: str) -> str:
-    """Convert EQ/UQ address to unified raw format (0:...) for accurate matching."""
     if not address:
         return ""
     addr = address.strip()
@@ -36,7 +35,6 @@ def to_raw_address(address: str) -> str:
     except Exception:
         return addr.lower()
 
-# Standardize addresses for reliable comparison
 TARGET_WALLET_RAW = to_raw_address(TARGET_WALLET)
 TARGET_JETTON_MASTER_RAW = to_raw_address(TARGET_JETTON_MASTER)
 
@@ -68,14 +66,12 @@ async def monitor_wallet():
                         data = await response.json()
                         events = data.get("events", [])
                         
-                        # Set initial baseline on startup to avoid spamming past transactions
                         if last_event_id is None:
                             if events:
                                 last_event_id = events[0]["event_id"]
-                            await asyncio.sleep(3)
+                            await asyncio.sleep(4)
                             continue
                         
-                        # Process events from oldest to newest
                         for event in reversed(events):
                             if event["event_id"] == last_event_id:
                                 continue
@@ -87,7 +83,6 @@ async def monitor_wallet():
                                     recipient = jetton_data.get("recipient", {}).get("address", "")
                                     master = jetton_data.get("jetton", {}).get("address", "")
                                     
-                                    # Compare normalized addresses
                                     is_match_token = to_raw_address(master) == TARGET_JETTON_MASTER_RAW
                                     is_match_wallet = to_raw_address(recipient) == TARGET_WALLET_RAW
                                     
@@ -111,12 +106,13 @@ async def monitor_wallet():
                             
                             last_event_id = event["event_id"]
                     else:
-                        print(f"[TonAPI Error] Status: {response.status}")
+                        error_body = await response.text()
+                        print(f"[TonAPI Error] Status: {response.status}, Detail: {error_body}")
                         
         except Exception as e:
             print(f"[Exception] {e}")
             
-        await asyncio.sleep(3)
+        await asyncio.sleep(4)
 
 if __name__ == "__main__":
     asyncio.run(monitor_wallet())
