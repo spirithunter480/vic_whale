@@ -15,9 +15,9 @@ NOTIFIER_CHAT_ID = os.getenv("NOTIFIER_CHAT_ID")
 TARGET_WALLET = "UQD-Jv-fsvCZgyUan28CA1kMe9WBRE3-nl_y9u0B71R0-Xsh"
 TARGET_JETTON_MASTER = "EQClb4h8Wnqx-X_sKMFExqxcQusCktlMHxYZ2M80A_WnnFUe"
 
-HEADERS = {
-    "Authorization": f"Bearer {TON_API_KEY}"
-} if TON_API_KEY else {}
+HEADERS = {}
+if TON_API_KEY and len(TON_API_KEY.strip()) > 10:
+    HEADERS["Authorization"] = f"Bearer {TON_API_KEY.strip()}"
 
 def to_raw_address(address: str) -> str:
     """Convert EQ/UQ address to unified raw format (0:...) for accurate matching."""
