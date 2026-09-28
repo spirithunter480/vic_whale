@@ -1,1 +1,1 @@
-worker: python main.py
+worker: python vic_whale.py
