@@ -10,7 +10,12 @@ TON_API_KEY = os.getenv("TON_API_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 NOTIFIER_CHAT_ID = os.getenv("NOTIFIER_CHAT_ID")
 
-TARGET_WALLET = "UQD-Jv-fsvCZgyUan28CA1kMe9WBRE3-nl_y9u0B71R0-Xsh"
+# لیست ولت‌های هدف برای مانیتورینگ
+TARGET_WALLETS = [
+    "UQD-Jv-fsvCZgyUan28CA1kMe9WBRE3-nl_y9u0B71R0-Xsh",
+    "UQCdHd0HR51iRBFYDM2q25i-AhoHt5_Y-4rX2qQ1EJM1Fmi4"
+]
+
 TARGET_JETTON_MASTER = "EQClb4h8Wnqx-X_sKMFExqxcQusCktlMHxYZ2M80A_WnnFUe"
 
 HEADERS = {}
@@ -34,7 +39,8 @@ def to_raw_address(address: str) -> str:
     except Exception:
         return addr.lower()
 
-TARGET_WALLET_RAW = to_raw_address(TARGET_WALLET)
+# نگاشت ولت‌های خام به آدرس‌های ورودی برای استفاده در تطابق و نوتیفیکیشن
+TARGET_WALLETS_RAW = {to_raw_address(w): w for w in TARGET_WALLETS}
 TARGET_JETTON_MASTER_RAW = to_raw_address(TARGET_JETTON_MASTER)
 
 async def send_telegram(text: str):
@@ -51,79 +57,82 @@ async def send_telegram(text: str):
                 print(f"[TG Error] Status: {resp.status}, Body: {await resp.text()}")
 
 async def monitor_wallet():
-    # ثبت تمام تراکنش‌های دیده‌شده برای جلوگیری قطعی از تکرار
     seen_event_ids = set()
     is_first_run = True
-    url = f"https://tonapi.io/v2/accounts/{TARGET_WALLET_RAW}/events?limit=20"
     
-    print("🚀 Monitoring started for wallet:", TARGET_WALLET)
+    print(f"🚀 Monitoring started for {len(TARGET_WALLETS)} wallets:")
+    for w in TARGET_WALLETS:
+        print(f"   - {w}")
     print("🎯 Target Jetton Master:", TARGET_JETTON_MASTER)
     
     while True:
         try:
             async with aiohttp.ClientSession(headers=HEADERS) as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        events = data.get("events", [])
-                        
-                        # در اجرای اول تمام تراکنش‌های گذشته ثبت و رد می‌شوند تا اسپم نشود
-                        if is_first_run:
-                            for ev in events:
-                                seen_event_ids.add(ev.get("event_id"))
-                            is_first_run = False
-                            print(f"✅ Baseline established. Ignored {len(seen_event_ids)} past transactions.")
-                            await asyncio.sleep(4)
-                            continue
-                        
-                        # بررسی رویدادهای جدید (از قدیمی به جدید)
-                        for event in reversed(events):
-                            eid = event.get("event_id")
-                            if not eid or eid in seen_event_ids:
+                for wallet_raw, wallet_original in TARGET_WALLETS_RAW.items():
+                    url = f"https://tonapi.io/v2/accounts/{wallet_raw}/events?limit=20"
+                    
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            events = data.get("events", [])
+                            
+                            if is_first_run:
+                                for ev in events:
+                                    seen_event_ids.add(ev.get("event_id"))
                                 continue
                             
-                            # بلافاصله به لیست رویدادهای دیده شده اضافه می‌شود
-                            seen_event_ids.add(eid)
-                            
-                            # کنترل حجم حافظه set
-                            if len(seen_event_ids) > 1000:
-                                seen_event_ids.pop()
+                            for event in reversed(events):
+                                eid = event.get("event_id")
+                                if not eid or eid in seen_event_ids:
+                                    continue
+                                
+                                seen_event_ids.add(eid)
+                                
+                                if len(seen_event_ids) > 2000:
+                                    seen_event_ids.pop()
 
-                            for action in event.get("actions", []):
-                                if action.get("type") == "JettonTransfer":
-                                    jetton_data = action.get("JettonTransfer", {})
-                                    
-                                    recipient = jetton_data.get("recipient", {}).get("address", "")
-                                    master = jetton_data.get("jetton", {}).get("address", "")
-                                    
-                                    is_match_token = to_raw_address(master) == TARGET_JETTON_MASTER_RAW
-                                    is_match_wallet = to_raw_address(recipient) == TARGET_WALLET_RAW
-                                    
-                                    if is_match_token and is_match_wallet:
-                                        decimals = jetton_data.get("jetton", {}).get("decimals", 9)
-                                        raw_amount = int(jetton_data.get("amount", 0))
-                                        amount = raw_amount / (10 ** decimals)
+                                for action in event.get("actions", []):
+                                    if action.get("type") == "JettonTransfer":
+                                        jetton_data = action.get("JettonTransfer", {})
                                         
-                                        symbol = jetton_data.get("jetton", {}).get("symbol", "Jetton")
-                                        sender = jetton_data.get("sender", {}).get("address", "Unknown")
+                                        recipient = jetton_data.get("recipient", {}).get("address", "")
+                                        master = jetton_data.get("jetton", {}).get("address", "")
                                         
-                                        msg = (
-                                            f"🚨 <b>New Jetton Deposit Detected!</b>\n\n"
-                                            f"🪙 <b>Token:</b> {symbol}\n"
-                                            f"💰 <b>Amount:</b> <code>{amount:,.4f}</code>\n"
-                                            f"📥 <b>Recipient:</b> <code>{recipient}</code>\n"
-                                            f"📤 <b>Sender:</b> <code>{sender}</code>\n\n"
-                                            f"🔗 <a href='https://tonviewer.com/transaction/{eid}'>View on Tonviewer</a>"
-                                        )
-                                        await send_telegram(msg)
-                    else:
-                        error_body = await response.text()
-                        print(f"[TonAPI Error] Status: {response.status}, Detail: {error_body}")
+                                        is_match_token = to_raw_address(master) == TARGET_JETTON_MASTER_RAW
+                                        is_match_wallet = to_raw_address(recipient) in TARGET_WALLETS_RAW
+                                        
+                                        if is_match_token and is_match_wallet:
+                                            decimals = jetton_data.get("jetton", {}).get("decimals", 9)
+                                            raw_amount = int(jetton_data.get("amount", 0))
+                                            amount = raw_amount / (10 ** decimals)
+                                            
+                                            symbol = jetton_data.get("jetton", {}).get("symbol", "Jetton")
+                                            sender = jetton_data.get("sender", {}).get("address", "Unknown")
+                                            
+                                            msg = (
+                                                f"🚨 <b>New Jetton Deposit Detected!</b>\n\n"
+                                                f"🪙 <b>Token:</b> {symbol}\n"
+                                                f"💰 <b>Amount:</b> <code>{amount:,.4f}</code>\n"
+                                                f"📥 <b>Recipient:</b> <code>{recipient}</code>\n"
+                                                f"📤 <b>Sender:</b> <code>{sender}</code>\n\n"
+                                                f"🔗 <a href='https://tonviewer.com/transaction/{eid}'>View on Tonviewer</a>"
+                                            )
+                                            await send_telegram(msg)
+                        else:
+                            error_body = await response.text()
+                            print(f"[TonAPI Error] Wallet: {wallet_original[:10]}... Status: {response.status}, Detail: {error_body}")
+                    
+                    # وقفه کوتاه بین بررسی هر ولت برای رعایت نرخ مجاز API
+                    await asyncio.sleep(2)
+                
+                if is_first_run:
+                    is_first_run = False
+                    print(f"✅ Baseline established. Ignored {len(seen_event_ids)} past transactions across all wallets.")
                         
         except Exception as e:
             print(f"[Exception] {e}")
             
-        await asyncio.sleep(4)
+        await asyncio.sleep(3)
 
 if __name__ == "__main__":
     asyncio.run(monitor_wallet())
