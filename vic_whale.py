@@ -13,7 +13,10 @@ NOTIFIER_CHAT_ID = os.getenv("NOTIFIER_CHAT_ID")
 # لیست ولت‌های هدف برای مانیتورینگ
 TARGET_WALLETS = [
     "UQD-Jv-fsvCZgyUan28CA1kMe9WBRE3-nl_y9u0B71R0-Xsh",
-    "UQCdHd0HR51iRBFYDM2q25i-AhoHt5_Y-4rX2qQ1EJM1Fmi4"
+    "UQCdHd0HR51iRBFYDM2q25i-AhoHt5_Y-4rX2qQ1EJM1Fmi4",
+    "UQDaYs2kud5EsXJNTnLUG3tMY8knpm3l5NxClO2jRRgKQBHL",
+    "UQDxfJj18D3olhy4ZoqiAwouykxd3a7Bbe4g3SZOmZN9UyGt",
+    "UQCyQQ6yOYXgK0MS4QR7lx5Jy84oH-lIR3NGvx_0sS4mwiLN"
 ]
 
 TARGET_JETTON_MASTER = "EQClb4h8Wnqx-X_sKMFExqxcQusCktlMHxYZ2M80A_WnnFUe"
